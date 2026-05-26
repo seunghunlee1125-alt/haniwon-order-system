@@ -31,9 +31,7 @@ export default function Header({ title }: HeaderProps) {
               {session?.user?.name ?? "사용자"}
             </p>
             <p className="text-xs text-gray-400">
-              {(session?.user as { role?: string })?.role === "ADMIN"
-                ? "관리자"
-                : "영업사원"}
+              {session?.user?.role === "ADMIN" ? "관리자" : "영업사원"}
             </p>
           </div>
         </div>
