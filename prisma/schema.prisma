@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────
+// 사용자
+// ──────────────────────────────────────────────
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(SALES)
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinics     Clinic[] @relation("SalesRep")
+  orders      Order[]  @relation("CreatedBy")
+  salesOrders Order[]  @relation("SalesRep")
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN  // 관리자
+  SALES  // 영업사원
+  CLINIC // 한의원 원장
+}
+
+// ──────────────────────────────────────────────
+// 한의원 (고객)
+// ──────────────────────────────────────────────
+model Clinic {
+  id              String       @id @default(uuid())
+  clinicName      String
+  ceoName         String?
+  businessNo      String?      @unique
+  address         String?
+  deliveryAddress String?
+  phone           String?
+  email           String?
+  paymentType     PaymentType  @default(MONTHLY)
+  creditLimit     Decimal      @default(0) @db.Decimal(15, 2)
+  startDate       DateTime?
+  status          ClinicStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  salesRepId   String?
+  salesRep     User?         @relation("SalesRep", fields: [salesRepId], references: [id])
+  orders       Order[]
+  invoices     Invoice[]
+  clinicPrices ClinicPrice[]
+
+  @@map("clinics")
+}
+
+enum PaymentType {
+  MONTHLY  // 후불 월마감
+  PREPAID  // 선불
+  CARD     // 카드
+}
+
+enum ClinicStatus {
+  ACTIVE     // 활성
+  DORMANT    // 휴면
+  TERMINATED // 거래중단
+}
+
+// ──────────────────────────────────────────────
+// 품목
+// ──────────────────────────────────────────────
+model Item {
+  id              String       @id @default(uuid())
+  itemCode        String?      @unique
+  itemName        String
+  spec            String?
+  unit            String?
+  category        ItemCategory @default(CONSUMABLE)
+  supplyPrice     Decimal      @db.Decimal(15, 2)
+  listPrice       Decimal?     @db.Decimal(15, 2)
+  isMedicalDevice Boolean      @default(false)
+  licenseNo       String?
+  deviceGrade     Int?
+  licenseExpiry   DateTime?
+  stockQty        Int          @default(0)
+  manufacturer    String?
+  supplier        String?
+  status          ItemStatus   @default(ON_SALE)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  orderItems    OrderItem[]
+  deliveryItems DeliveryItem[]
+  clinicPrices  ClinicPrice[]
+
+  @@map("items")
+}
+
+enum ItemCategory {
+  CONSUMABLE     // 소모품
+  MEDICAL_DEVICE // 의료기기
+  HERBAL         // 한약재
+  OTHER          // 기타
+}
+
+enum ItemStatus {
+  ON_SALE      // 판매중
+  DISCONTINUED // 단종
+  OUT_OF_STOCK // 일시품절
+}
+
+// 한의원별 계약단가
+model ClinicPrice {
+  id        String   @id @default(uuid())
+  price     Decimal  @db.Decimal(15, 2)
+  createdAt DateTime @default(now())
+
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+  itemId   String
+  item     Item   @relation(fields: [itemId], references: [id])
+
+  @@unique([clinicId, itemId])
+  @@map("clinic_prices")
+}
+
+// ──────────────────────────────────────────────
+// 주문
+// ──────────────────────────────────────────────
+model Order {
+  id                    String       @id @default(uuid())
+  orderNo               String       @unique
+  orderDate             DateTime     @default(now())
+  requestedDeliveryDate DateTime?
+  deliveryAddress       String?
+  orderChannel          OrderChannel @default(ADMIN)
+  totalAmount           Decimal      @default(0) @db.Decimal(15, 2)
+  status                OrderStatus  @default(RECEIVED)
+  memo                  String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  clinicId    String
+  clinic      Clinic @relation(fields: [clinicId], references: [id])
+  salesRepId  String?
+  salesRep    User?  @relation("SalesRep", fields: [salesRepId], references: [id])
+  createdById String?
+  createdBy   User?  @relation("CreatedBy", fields: [createdById], references: [id])
+
+  orderItems    OrderItem[]
+  delivery      Delivery?
+  invoiceOrders InvoiceOrder[]
+
+  @@map("orders")
+}
+
+enum OrderChannel {
+  APP   // 앱
+  PHONE // 전화
+  ADMIN // 관리자입력
+  WEB   // 웹
+}
+
+enum OrderStatus {
+  RECEIVED   // 접수
+  CONFIRMED  // 확인
+  PREPARING  // 출고준비
+  SHIPPED    // 출고
+  DELIVERED  // 납품완료
+  SETTLED    // 정산완료
+  CANCELLED  // 취소
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  qty       Int
+  unitPrice Decimal @db.Decimal(15, 2)
+  amount    Decimal @db.Decimal(15, 2)
+  isReturned Boolean @default(false)
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId  String
+  item    Item   @relation(fields: [itemId], references: [id])
+
+  @@map("order_items")
+}
+
+// ──────────────────────────────────────────────
+// 납품
+// ──────────────────────────────────────────────
+model Delivery {
+  id           String    @id @default(uuid())
+  deliveryNo   String    @unique
+  deliveryDate DateTime?
+  deliveredBy  String?
+  receiverName String?
+  signatureUrl String?
+  photoUrl     String?
+  statementUrl String?
+  createdAt    DateTime  @default(now())
+
+  orderId String   @unique
+  order   Order    @relation(fields: [orderId], references: [id])
+
+  deliveryItems DeliveryItem[]
+
+  @@map("deliveries")
+}
+
+model DeliveryItem {
+  id           String  @id @default(uuid())
+  orderedQty   Int
+  deliveredQty Int
+  isReturn     Boolean @default(false)
+
+  deliveryId String
+  delivery   Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       Item     @relation(fields: [itemId], references: [id])
+
+  @@map("delivery_items")
+}
+
+// ──────────────────────────────────────────────
+// 정산 / 청구
+// ──────────────────────────────────────────────
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNo     String        @unique
+  billingPeriod String        // 예: '2026-05'
+  issueDate     DateTime?
+  supplyAmount  Decimal       @db.Decimal(15, 2)
+  vatAmount     Decimal       @db.Decimal(15, 2)
+  totalAmount   Decimal       @db.Decimal(15, 2)
+  taxInvoiceNo  String?
+  status        InvoiceStatus @default(ISSUED)
+  dueDate       DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+
+  payments      Payment[]
+  invoiceOrders InvoiceOrder[]
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  ISSUED  // 발행
+  UNPAID  // 미수
+  PAID    // 입금완료
+  OVERDUE // 연체
+}
+
+model InvoiceOrder {
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+
+  @@id([invoiceId, orderId])
+  @@map("invoice_orders")
+}
+
+model Payment {
+  id         String    @id @default(uuid())
+  paidDate   DateTime
+  paidAmount Decimal   @db.Decimal(15, 2)
+  payMethod  PayMethod
+  memo       String?
+  createdAt  DateTime  @default(now())
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+enum PayMethod {
+  CASH     // 현금
+  TRANSFER // 계좌이체
+  CARD     // 카드
+}
